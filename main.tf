@@ -2,14 +2,17 @@ provider "aws" {
   region = "eu-central-1"
 }
 resource "aws_instance" "ubuntu-vpc-2" {
-  ami           = "ami-003773449898844f8"
+ ami           = "ami-0a49b025fffbbdac6"
   instance_type = "t3.micro"
   tags = {
     Name = "ubuntu-vpc-2"
   }
   iam_instance_profile = "AdminAccessFullEC2"
   subnet_id            = aws_subnet.publicsubnet.id
-
+  provisioner "local-exec"  {
+  command = "apt update && apt install -y git && git clone https://github.com/dmiryan/content-widget-factory-inc.git"
+      
+}
 
 }
 
@@ -65,3 +68,6 @@ resource "aws_vpc" "vpc-2" {                # Creating VPC here
    allocation_id = aws_eip.nateIP.id
    subnet_id = aws_subnet.publicsubnet.id
  }
+
+
+
