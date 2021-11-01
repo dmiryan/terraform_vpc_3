@@ -36,6 +36,11 @@ resource "aws_vpc" "vpc-2" {                # Creating VPC here
    cidr_block = "10.0.1.0/24"        
    map_public_ip_on_launch = "true" //it makes this a public subnet
  }
+ resource "aws_subnet" "publicsubnet-2" {
+   vpc_id =  aws_vpc.vpc-2.id
+   cidr_block = "10.0.1.0/24"        
+   map_public_ip_on_launch = "true" //it makes this a public subnet
+ }
  //Create a Private Subnet                   # Creating Private Subnets
  resource "aws_subnet" "privatesubnet" {
    vpc_id =  aws_vpc.vpc-2.id
@@ -62,6 +67,10 @@ resource "aws_vpc" "vpc-2" {                # Creating VPC here
     subnet_id = aws_subnet.publicsubnet.id
     route_table_id = aws_route_table.PublicRT.id
  }
+ resource "aws_route_table_association" "PublicRTassociation" {
+    subnet_id = aws_subnet.publicsubnet-2.id
+    route_table_id = aws_route_table.PublicRT.id
+ }
  //Route table Association with Private Subnet's
  resource "aws_route_table_association" "PrivateRTassociation" {
     subnet_id = aws_subnet.privatesubnet.id
@@ -73,7 +82,7 @@ resource "aws_vpc" "vpc-2" {                # Creating VPC here
  //Creating the NAT Gateway for private subnet to reach internet
  resource "aws_nat_gateway" "NATgw-2" {
    allocation_id = aws_eip.nateIP.id
-   subnet_id = aws_subnet.publicsubnet.id
+   subnet_id = aws_subnet.privatesubnet.id
  }
 
 # Create the Security Group
@@ -114,7 +123,7 @@ resource "aws_lb" "alb-1" {
   internal           = false
   load_balancer_type = "application" // type alb
   security_groups    = [aws_security_group.sec-grp-web.id]
-  subnets            = [aws_subnet.publicsubnet.id, aws_subnet.privatesubnet.id]
+  subnets            = [aws_subnet.publicsubnet.id, aws_subnet.publicsubnet-2.id]
   enable_deletion_protection = true
 }
 
@@ -158,3 +167,25 @@ resource "aws_route53_record" "mymir" { // type A record within hostedzone
     evaluate_target_health = true
   }
 }
+# autoscaling section
+resource "aws_launch_configuration" "launchcfg-asg-1" {
+  image_id = "ami-0a49b025fffbbdac6"
+  instance_type = "t3.micro"
+}
+
+resource "aws_autoscaling_group" "asg-1" {
+  name = "asg-1"
+  max_size = 5
+  min_size = 2
+  health_check_grace_period = 300
+  health_check_type = "EC2"
+  desired_capacity = 3
+  force_delete = true
+  vpc_zone_identifier = [aws_subnet.publicsubnet.id, aws_subnet.publicsubnet-2.id ]
+  launch_configuration = aws_launch_configuration.launchcfg-asg-1.name
+  lifecycle {
+    create_before_destroy = true
+  }
+
+}
+
