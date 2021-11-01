@@ -4,14 +4,16 @@ provider "aws" {
 resource "aws_instance" "ubuntu-vpc-2" {
  ami           = "ami-0a49b025fffbbdac6"
   instance_type = "t3.micro"
+  
   tags = {
     Name = "ubuntu-vpc-2"
   }
+  key_name = aws_key_pair.ed1.id
   iam_instance_profile = "AdminAccessFullEC2"
   subnet_id            = aws_subnet.publicsubnet.id
+  vpc_security_group_ids = [aws_security_group.sec-grp-web.id]
   provisioner "local-exec"  {
-  command = "apt update && apt install -y git && git clone https://github.com/dmiryan/content-widget-factory-inc.git"
-      
+  command = "sudo apt update -y; sudo apt install git -y; sudo apt install nginx -y; sudo git clone https://github.com/dmiryan/content-widget-factory-inc.git ~/tmp; sudo cp -r ~/tmp/web/. /var/www/html/"
 }
 
 }
@@ -28,6 +30,7 @@ resource "aws_vpc" "vpc-2" {                # Creating VPC here
  resource "aws_subnet" "publicsubnet" {    # Creating Public Subnets
    vpc_id =  aws_vpc.vpc-2.id
    cidr_block = "10.0.1.0/24"        # CIDR block of public subnets
+   map_public_ip_on_launch = "true" //it makes this a public subnet
  }
  //Create a Private Subnet                   # Creating Private Subnets
  resource "aws_subnet" "privatesubnet" {
@@ -69,5 +72,84 @@ resource "aws_vpc" "vpc-2" {                # Creating VPC here
    subnet_id = aws_subnet.publicsubnet.id
  }
 
+# Create the Security Group
+resource "aws_security_group" "sec-grp-web" {
+  vpc_id       = aws_vpc.vpc-2.id
+  name         = "ports 22 80"
+  
+  # allow ingress of port 22
+  ingress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+  } 
+ # allow ingress of port 80
+  ingress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+  }
+  # allow egress of all ports
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+resource "aws_key_pair" "ed1" {
+  key_name   = "ed1"
+  public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP12xI6YgHVc5r/rR5qWIzILPIdanVnL6Lx/qZ0pZPT1"
 
+ }
 
+resource "aws_lb" "alb-1" {
+  name               = "alb-1"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.sec-grp-web.id]
+  subnets            = [aws_subnet.publicsubnet.id, aws_subnet.privatesubnet.id]
+  enable_deletion_protection = true
+}
+
+resource "aws_lb_target_group" "tg-1_alb-1" {
+  //name     = "tg-1_alb-1"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.vpc-2.id
+}
+
+resource "aws_lb_listener" "listener-1_alb-1" {
+  load_balancer_arn = aws_lb.alb-1.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.tg-1_alb-1.arn
+  }
+}
+
+resource "aws_route53_zone" "mymir" {
+  name = "mymir.xyz"
+}
+
+resource "aws_route53_record" "mymir" {
+  zone_id = aws_route53_zone.mymir.zone_id
+  name    = "mymir.xyz"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.alb-1.dns_name
+    zone_id                = aws_lb.alb-1.zone_id
+    evaluate_target_health = true
+  }
+}
+
+resource "aws_lb_target_group_attachment" "mymir" {
+  target_group_arn = aws_lb_target_group.tg-1_alb-1.arn
+  target_id        = aws_instance.ubuntu-vpc-2.id
+  port             = 80
+}
